@@ -1,31 +1,58 @@
+const readline = require('readline');
 const CreateMemory = require("./CreateMemory");
 const CPU = require("./CPU");
 const INSTRUCTIONS = require("./Instructions");
+const { read } = require('fs');
 
-const memory = CreateMemory(256);
+const IP = 0;
+const ACC = 1;
+const R1 = 2;
+const R2 = 3;
+
+const memory = CreateMemory(256 * 256);
 const writableBytes = new Uint8Array(memory.buffer);
+
+let i = 0;
 
 const cpu = new CPU(memory);
 
-writableBytes[0] = INSTRUCTIONS.MOVL_R1;
-writableBytes[1] = 0x11;    // 0x1122
-writableBytes[2] = 0x22;
+writableBytes[i++] = INSTRUCTIONS.MOV_MEM_REG;
+writableBytes[i++] = 0x01;
+writableBytes[i++] = 0x00;
+writableBytes[i++] = R1;
 
-writableBytes[3] = INSTRUCTIONS.MOVL_R2;
-writableBytes[4] = 0x33;    // 0x3344
-writableBytes[5] = 0x44;
+writableBytes[i++] = INSTRUCTIONS.MOV_LIT_REG;
+writableBytes[i++] = 0x00;
+writableBytes[i++] = 0x01;
+writableBytes[i++] = R2;
 
-writableBytes[6] = INSTRUCTIONS.ADDRR;
-writableBytes[7] = 2;       // r1 index 
-writableBytes[8] = 3;       // r2 index
+writableBytes[i++] = INSTRUCTIONS.ADD_REG_REG;
+writableBytes[i++] = R1;
+writableBytes[i++] = R2;
+
+writableBytes[i++] = INSTRUCTIONS.MOV_REG_MEM;
+writableBytes[i++] = ACC;
+writableBytes[i++] = 0x01;
+writableBytes[i++] = 0x00;
+
+writableBytes[i++] = INSTRUCTIONS.JMP_NOT_EQ;
+writableBytes[i++] = 0x00;
+writableBytes[i++] = 0x03;
+writableBytes[i++] = 0x00;
+writableBytes[i++] = 0x00;
 
 cpu.Debug();
+cpu.ViewMemoryAt(cpu.GetRegister("ip"));
+cpu.ViewMemoryAt(0x0100);
 
-cpu.Step();     // Move literal 0x1122 into r1
-cpu.Debug();
+const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+});
 
-cpu.Step();     // Move literal 0x3344 into r2
-cpu.Debug();
-
-cpu.Step();     // Add r1 and r2
-cpu.Debug();
+rl.on('line', () => {
+    cpu.Step();
+    cpu.Debug();
+    cpu.ViewMemoryAt(cpu.GetRegister("ip"));
+    cpu.ViewMemoryAt(0x0100);
+});

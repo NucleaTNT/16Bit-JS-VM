@@ -27,6 +27,14 @@ class CPU {
         console.log("");
     }
 
+    ViewMemoryAt(address) {
+        const nextEightBytes = Array.from({length: 8}, (_, i) =>
+            this.memory.getUint8(address + i)
+        ).map(v => `0x${v.toString(16).padStart(2, '0')}`);
+    
+        console.log(`0x${address.toString(16).padStart(4, '0')}: ${nextEightBytes.join(' ')}`)
+    }
+
     GetRegister(name) {
         if (!(name in this.registerMap)) {
             throw new Error(`GetRegister: No such register '${name}'`);
@@ -57,24 +65,53 @@ class CPU {
 
     Execute(instruction) {
         switch (instruction) {
-            case INSTRUCTIONS.MOVL_R1: {    
+            case INSTRUCTIONS.MOV_LIT_REG: {    // Move literal into register
                 const literal = this.Fetch16();
-                this.SetRegister("r1", literal);
+                const register = (this.Fetch() % this.registerNames.length) * 2;
+                this.registers.setUint16(register, literal);
                 return;
             }
 
-            case INSTRUCTIONS.MOVL_R2: {   
-                const literal = this.Fetch16();
-                this.SetRegister("r2", literal);
+            case INSTRUCTIONS.MOV_REG_REG: {    // Move register into register
+                const src = (this.Fetch() % this.registerNames.length) * 2;
+                const dest = (this.Fetch() % this.registerNames.length) * 2;
+                const value = this.registers.getUint16(src);
+                this.registers.setUint16(dest, value);
                 return;
             }
 
-            case INSTRUCTIONS.ADDRR: {
+            case INSTRUCTIONS.MOV_REG_MEM: {    // Move register into memory
+                const src = (this.Fetch() % this.registerNames.length) * 2;
+                const address = this.Fetch16();
+                const value = this.registers.getUint16(src);
+                this.memory.setUint16(address, value);
+                return;
+            }
+
+            case INSTRUCTIONS.MOV_MEM_REG: {    // Move memory into register
+                const address = this.Fetch16();
+                const dest = (this.Fetch() % this.registerNames.length) * 2;
+                const value = this.memory.getUint16(address);
+                this.registers.setUint16(dest, value);
+                return;
+            }
+
+            case INSTRUCTIONS.ADD_REG_REG: {    // Add register to register
                 const r1 = this.Fetch();
                 const r2 = this.Fetch();
                 const registerValue1 = this.registers.getUint16(r1 * 2);
                 const registerValue2 = this.registers.getUint16(r2 * 2);
                 this.SetRegister("acc", registerValue1 + registerValue2);
+                return;
+            }
+
+            case INSTRUCTIONS.JMP_NOT_EQ: {     // Jump if not equal
+                const value = this.Fetch16();
+                const address = this.Fetch16();
+
+                if (value !== this.GetRegister("acc")) {
+                    this.SetRegister("ip", address);
+                }
                 return;
             }
         }
@@ -84,6 +121,6 @@ class CPU {
         const instruction = this.Fetch();
         return this.Execute(instruction);
     }
-}
+};
 
 module.exports = CPU;
