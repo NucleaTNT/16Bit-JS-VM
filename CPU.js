@@ -20,8 +20,8 @@ class CPU {
             return map;
         }, {});
 
-        this.SetRegister("sp", memory.byteLength - 1 - 1);  // -1 due to 2 bytes needed per address, -1 because it's 0 indexed 
-        this.SetRegister("fp", memory.byteLength - 1 - 1);
+        this.SetRegister("sp", 0xffff - 1);
+        this.SetRegister("fp", 0xffff - 1);
 
         this.stackFrameSize = 0;
     }
@@ -167,8 +167,8 @@ class CPU {
             case INSTRUCTIONS.ADD_REG_REG: {    // Add register to register
                 const r1 = this.Fetch();
                 const r2 = this.Fetch();
-                const registerValue1 = this.registers.getUint16(r1 * 2);
-                const registerValue2 = this.registers.getUint16(r2 * 2);
+                const registerValue1 = this.registers.getUint16(r1);
+                const registerValue2 = this.registers.getUint16(r2);
                 this.SetRegister("acc", registerValue1 + registerValue2);
                 return;
             }
@@ -221,12 +221,23 @@ class CPU {
                 this.PopState();
                 return;
             }
+
+            case INSTRUCTIONS.HLT: {            // Halt the VM
+                return true;
+            }
         }
     }
 
     Step() {
         const instruction = this.Fetch();
         return this.Execute(instruction);
+    }
+
+    Run() {
+        const halt = this.Step();
+        if (!halt) {
+            setImmediate(() => this.Run());
+        }
     }
 };
 

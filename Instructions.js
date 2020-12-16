@@ -10,6 +10,7 @@ const POP           = 0x1a;     // Pop a value from the stack
 const CAL_LIT       = 0x5E;     // Call a subroutine using a literal as the address
 const CAL_REG       = 0x5F;     // Call a subroutine using the value in the register as the address
 const RET           = 0x60;     // Return from a subroutine
+const HLT           = 0xff;     // Halt the VM
 
 module.exports = {
     MOV_LIT_REG,
@@ -24,4 +25,5 @@ module.exports = {
     CAL_LIT,
     CAL_REG,
     RET,
+    HLT,
 };
