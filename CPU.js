@@ -1,9 +1,10 @@
 const CreateMemory = require("./CreateMemory");
+const Instructions = require("./Instructions");
 const INSTRUCTIONS = require("./Instructions");
 const registers = require("./Registers");
 
 class CPU {
-    constructor(memory) {
+    constructor(memory, interruptVectorAddress = 0x1000) {
         this.memory = memory;
 
         // Each register = 16 bits, create memory that is 2 bytes for every register
@@ -13,6 +14,10 @@ class CPU {
             map[name] = i * 2;
             return map;
         }, {});
+
+        this.interruptVectorAddress = interruptVectorAddress;
+        this.isInInterruptHandler = false;
+        this.SetRegister("im", 0xffff);
 
         this.SetRegister("sp", 0xffff - 1);
         this.SetRegister("fp", 0xffff - 1);
@@ -125,8 +130,37 @@ class CPU {
         this.SetRegister("fp", framePointerAddress + stackFrameSize);
     }
 
+    HandleInterrupt(value) {
+        const interruptVectorIndex = value % 0xf;
+        const isUnmasked = Boolean((1 << interruptVectorIndex) & this.GetRegister("im"));
+
+        if (!isUnmasked) return;
+        const addressPointer = this.interruptVectorAddress + (interruptVectorIndex * 2);
+        const address = this.memory.getUint16(addressPointer);
+
+        if (!this.isInInterruptHandler) {
+            this.Push(0);
+            this.PushState();
+        }
+
+        this.isInInterruptHandler = true;
+        this.SetRegister("ip", address);
+    }
+
     Execute(instruction) {
         switch (instruction) {
+            case INSTRUCTIONS.INT.opcode : {                // Software triggered interrupt
+                const interruptValue = this.Fetch16();
+                this.HandleInterrupt(interruptValue);
+                return;
+            }
+
+            case INSTRUCTIONS.RET_INT.opcode : {            // Return from interrupt handler
+                this.isInInterruptHandler = false;
+                this.PopState();
+                return;
+            }
+
             case INSTRUCTIONS.MOV_LIT_REG.opcode: {         // Move literal into register
                 const literal = this.Fetch16();
                 const register = this.FetchRegisterIndex();

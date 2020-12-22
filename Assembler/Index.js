@@ -109,7 +109,7 @@ parsedOutput.result.forEach(instruction => {
         encodeReg(instruction.value.args[0]);
     }
     if (I.singleLit === metadata.type) {
-        encodeLitOrMem(instruction.value.args[1]);
+        encodeLitOrMem(instruction.value.args[0]);
     }
 });
 
