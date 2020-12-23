@@ -7,6 +7,9 @@ const upperOrLowerStr = s => A.choice([
     A.str(s.toLowerCase())
 ]);
 
+const optionalWhitespaceSurrounded = A.between(A.optionalWhitespace)(A.optionalWhitespace);
+const commaSeparated = A.sepBy(optionalWhitespaceSurrounded(A.char(",")));
+
 const register = A.choice([
     upperOrLowerStr("r1"),
     upperOrLowerStr("r2"),
@@ -54,9 +57,23 @@ const operator = A.choice([
     A.char("*").map(T.opMultiply),
 ]);
 
+const keyValuePair = A.coroutine(function* () {
+    yield A.optionalWhitespace;
+    const key = yield validIdentifier;
+    yield A.optionalWhitespace;
+    yield A.char(":");
+    yield A.optionalWhitespace;
+    const value = yield hexLiteral;
+    yield A.optionalWhitespace;
+
+    return {key, value};
+});
+
 const peek = A.lookAhead(A.regex(/^./));
 
 module.exports = {
+    optionalWhitespaceSurrounded,
+    commaSeparated,
     register,
     address,
     hexLiteral,
@@ -65,5 +82,6 @@ module.exports = {
     variable,
     operator,
     upperOrLowerStr,
+    keyValuePair,
     peek
 };

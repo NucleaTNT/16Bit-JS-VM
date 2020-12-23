@@ -9,13 +9,17 @@ const registerMap = registers.reduce((map, regName, index) => {
 }, {});
 
 const exampleProgram = `
-constant code_constant = $C0DE
-
-+data8 bytes = { $01,  $02,  $03,  $04 }
-data16 words = { $0506, $0708, $090a, $0b0c }
+structure Rectangle {
+    x: $2,
+    y: $2,
+    w: $2,
+    h: $2
+}
 
 code:
-    mov [!code_constant], &1234
+    mov &[<Rectangle> myRectangle.y], r1
+
+data16 myRectangle = {$a3, $1b, $04, $10}
 `.trim();
 
 const parsedOutput = parser.run(exampleProgram);
@@ -26,22 +30,26 @@ if (parsedOutput.isError) {
 
 const machineCode = [];
 const symbolicNames = {};
+const structures = {};
 let currentAddress = 0;
 
 // Resolve symbolicNames
 parsedOutput.result.forEach(node => {
     switch (node.type) {
         case "LABEL": {
+            if (node.value in symbolicNames || node.value in structures) throw new Error(`Can't create label "${node.value}" because a binding with this name already exists.`);
             symbolicNames[node.value] = currentAddress;
             break;
         }
 
         case "CONSTANT": {
+            if (node.value.name in symbolicNames || node.value.name in structures) throw new Error(`Can't create constant "${node.value}" because a binding with this name already exists.`);
             symbolicNames[node.value.name] = parseInt(node.value.value.value, 16) & 0xffff;
             break;
         }
 
         case "DATA": {
+            if (node.value.name in symbolicNames || node.value.name in structures) throw new Error(`Can't create data "${node.value}" because a binding with this name already exists.`);
             symbolicNames[node.value.name] = currentAddress;
             const sizeOfEachValueInBytes = node.value.size === 16 ? 2 : 1;
             const totalSizeOfDataInBytes = node.value.values.length * sizeOfEachValueInBytes;
@@ -49,57 +57,89 @@ parsedOutput.result.forEach(node => {
             break;
         }
 
+        case "STRUCTURE": {
+            if (node.value.name in symbolicNames || node.value.name in structures) throw new Error(`Can't create structure "${node.value}" because a binding with this name already exists.`);
+            structures[node.value.name] = {
+                members: {}
+            };
+
+            let offset = 0;
+            for (let {key, value} of node.value.members) {
+                structures[node.value.name].members[key] = {
+                    offset,
+                    size: parseInt(value.value, 16) & 0xffff
+                };
+                offset += structures[node.value.name].members[key].size;
+            }
+            break;
+        }
+
         default: {
             const metadata = instructions[node.value.instruction];
             currentAddress += metadata.size;
+            break;
         }
     }
 });
 
-const encodeLitOrMem = val => {
-    let hexVal;
-    if (val.type === "VARIABLE") {
-        if (!(val.value in symbolicNames)) {
-            throw new Error(`Label "${val.value}" wasn't resolved.`);
-        }
-        hexVal = symbolicNames[val.value];
-    } else {
-        hexVal = parseInt(val.value, 16);
-    }
+const GetNodeValue = node => {
+    switch (node.type) {
+        case "INTERPRET_AS": {
+            const structure = structures[node.value.structure];
+            if (!structure) throw new Error(`Structure "${node.value.structure}" wasn't resolved.`);
 
+            const member = structure.members[node.value.property];
+            if (!member) throw new Error(`Property "${node.value.property}" in structure "${node.value.structure}" wasn't resolved.`);
+
+            if (!(node.value.symbol in symbolicNames)) throw new Error(`Symbol "${node.value.symbol}" wasn't resolved.`);
+            const symbol = symbolicNames[node.value.symbol];
+            return symbol + member.offset;
+        }
+
+        case "VARIABLE" : {
+            if (!(node.value in symbolicNames)) {
+                throw new Error(`Label "${node.value}" wasn't resolved.`);
+            }
+
+            return symbolicNames[node.value];
+        }
+
+        case "HEX_LITERAL": {
+            return parseInt(node.value, 16);
+        }
+
+        default: {
+            throw new Error(`Unsupported node type: "${node.type}"`)
+        }
+    }
+}
+
+const EncodeLitOrMem = node => {
+    const hexVal = GetNodeValue(node);
     const highByte = (hexVal & 0xff00) >> 8;
     const lowByte = hexVal & 0x00ff;
     machineCode.push(highByte, lowByte);
 };
 
-const encodeLit8 = lit => {
-    let hexVal;
-    if (lit.type === "VARIABLE") {
-        if (!(lit.value in symbolicNames)) {
-            throw new Error(`Label "${lit.value}" wasn't resolved.`);
-        }
-        hexVal = symbolicNames[lit.value];
-    } else {
-        hexVal = parseInt(lit.value, 16);
-    }
-
+const EncodeLit8 = node => {
+    const hexVal = GetNodeValue(node);
     const lowByte = hexVal & 0x00ff;
     machineCode.push(lowByte);
 };
 
-const encodeReg = reg => {
+const EncodeReg = reg => {
     const mappedReg = registerMap[reg.value];
     machineCode.push(mappedReg);
 };
 
-const encodeData8 = node => {
+const EncodeData8 = node => {
     for (let byte of node.value.values) {
         const parsed = parseInt(byte.value, 16);
         machineCode.push(parsed & 0xff);
     }
 }
 
-const encodeData16 = node => {
+const EncodeData16 = node => {
     for (let byte of node.value.values) {
         const parsed = parseInt(byte.value, 16);
         machineCode.push((parsed & 0xff00) >> 8);
@@ -108,12 +148,12 @@ const encodeData16 = node => {
 }
 
 parsedOutput.result.forEach(node => {
-    if (node.type === "LABEL" || node.type === "CONSTANT") return;
+    if (node.type === "LABEL" || node.type === "CONSTANT" || node.type === "STRUCTURE") return;
     if (node.type === "DATA") {
         if (node.value.size === 8) {
-            encodeData8(node);
+            EncodeData8(node);
         } else {
-            encodeData16(node);
+            EncodeData16(node);
         }
         return;
     }
@@ -122,35 +162,35 @@ parsedOutput.result.forEach(node => {
     machineCode.push(metadata.opcode);
 
     if ([I.litReg, I.memReg].includes(metadata.type)) {
-        encodeLitOrMem(node.value.args[0]);
-        encodeReg(node.value.args[1]);
+        EncodeLitOrMem(node.value.args[0]);
+        EncodeReg(node.value.args[1]);
     }
     if ([I.regLit, I.regMem].includes(metadata.type)) {
-        encodeReg(node.value.args[0]);
-        encodeLitOrMem(node.value.args[1]);
+        EncodeReg(node.value.args[0]);
+        EncodeLitOrMem(node.value.args[1]);
     }
     if (I.regLit8 === metadata.type) {
-        encodeReg(node.value.args[0]);
-        encodeLit8(node.value.args[1]);
+        EncodeReg(node.value.args[0]);
+        EncodeLit8(node.value.args[1]);
     }
     if ([I.regReg, I.regPtrReg].includes(metadata.type)) {
-        encodeReg(node.value.args[0]);
-        encodeReg(node.value.args[1]);
+        EncodeReg(node.value.args[0]);
+        EncodeReg(node.value.args[1]);
     }
     if (I.litMem === metadata.type) {
-        encodeLitOrMem(node.value.args[0]);
-        encodeLitOrMem(node.value.args[1]);
+        EncodeLitOrMem(node.value.args[0]);
+        EncodeLitOrMem(node.value.args[1]);
     }
     if (I.litOffReg === metadata.type) {
-        encodeLitOrMem(node.value.args[0]);
-        encodeReg(node.value.args[1]);
-        encodeReg(node.value.args[2]);
+        EncodeLitOrMem(node.value.args[0]);
+        EncodeReg(node.value.args[1]);
+        EncodeReg(node.value.args[2]);
     }
     if (I.singleReg === metadata.type) {
-        encodeReg(node.value.args[0]);
+        EncodeReg(node.value.args[0]);
     }
     if (I.singleLit === metadata.type) {
-        encodeLitOrMem(node.value.args[0]);
+        EncodeLitOrMem(node.value.args[0]);
     }
 });
 

@@ -1,11 +1,18 @@
 const A = require("arcsecond");
 const T = require("./Types");
+const interpretAs = require("./InterpretAs");
 const {
     peek,
     hexLiteral,
     operator,
     variable,
 } = require("./Common");
+
+const expressionElement = A.choice([
+    interpretAs,
+    hexLiteral,
+    variable
+]);
 
 const disambiguateOrderOfOperations = expr => {
     if (expr.type !== "SQUARE_BRACKET_EXPRESSION" && expr.type !== "BRACKETED_EXPRESSION") {
@@ -102,11 +109,7 @@ const bracketedExpr = A.coroutine(function* () {
             if (nextChar === "(") {
                 state = states.OPEN_BRACKET;
             } else {
-                last(stack).push(yield A.choice([
-                    hexLiteral,
-                    variable
-                ]));
-
+                last(stack).push(yield expressionElement);
                 yield A.optionalWhitespace;
                 state = states.OPERATOR_OR_CLOSING_BRACKET;
             }
@@ -142,8 +145,7 @@ const squareBracketExpr = A.coroutine(function* () {
         if (state === states.EXPECT_ELEMENT) {
             const result = yield A.choice([
                 bracketedExpr,
-                hexLiteral,
-                variable
+                expressionElement
             ]);
             expr.push(result);
             state = states.EXPECT_OPERATOR;
