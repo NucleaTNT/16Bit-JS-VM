@@ -127,8 +127,8 @@ const EncodeLit8 = node => {
     machineCode.push(lowByte);
 };
 
-const EncodeReg = reg => {
-    const mappedReg = registerMap[reg.value];
+const EncodeReg = node => {
+    const mappedReg = registerMap[node.value];
     machineCode.push(mappedReg);
 };
 

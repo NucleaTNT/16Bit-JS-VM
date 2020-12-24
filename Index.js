@@ -1,62 +1,101 @@
-const CreateMemory = require("./CreateMemory");
-const CPU = require("./CPU");
-const MemoryMapper = require("./MemoryMapper");
+const colors = [
+    [0x00, 0x00, 0x00, 0],
+    [0xff, 0x00, 0x00, 1],
+    [0xff, 0x80, 0x00, 1],
+    [0xff, 0xff, 0x00, 1],
+    [0x80, 0xff, 0x00, 1],
+    [0x00, 0xff, 0x00, 1],
+    [0x00, 0xff, 0x80, 1],
+    [0x00, 0xff, 0xff, 1],
+    [0x00, 0x80, 0xff, 1],
+    [0x00, 0x00, 0xff, 1],
+    [0x7f, 0x00, 0xff, 1],
+    [0xff, 0x00, 0xff, 1],
+    [0xff, 0x00, 0x7f, 1],
+    [0x80, 0x80, 0x80, 1],
+    [0xff, 0xff, 0xff, 1],
+    [0x00, 0x00, 0x00, 1],
+];
 
-const MM = new MemoryMapper();
+const TILE_WIDTH = 30;
+const TILE_HEIGHT = 14;
+const PIXELS_PER_TILE = 8;
+const SCALE_FACTOR = 6;
 
-const dataViewMethods = [
-    "getUint8",
-    "setUint8",
-    "getUint16",
-    "setUint16"
-]
+const CANVAS_WIDTH = TILE_WIDTH * PIXELS_PER_TILE * SCALE_FACTOR;
+const CANVAS_HEIGHT = TILE_HEIGHT * PIXELS_PER_TILE * SCALE_FACTOR;
+const CANVAS = document.getElementById("screen");
 
-const CreateBankedMemory = (n, bankSize, cpu) => {
-    const bankBuffers = Array.from({length: n}, () => new ArrayBuffer(bankSize));
-    const banks = bankBuffers.map(ab => new DataView(ab));
+CANVAS.width = CANVAS_WIDTH;
+CANVAS.height = CANVAS_HEIGHT;
 
-    const forwardToDataView = name => (...args) => {
-        const bankIndex = cpu.GetRegister("mb") % n;
-        const memoryBankToUse = banks[bankIndex];
-        return memoryBankToUse[name](...args);
-    };
+const CTX = CANVAS.getContext("2d");
 
-    const interface = dataViewMethods.reduce((dvOut, fnName) => {
-        dvOut[fnName] = forwardToDataView(fnName);
-        return dvOut;
-    }, {});
-
-    return interface;
+const color = ([r, g, b, a]) => CTX.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+const drawPixel = (x, y, c) => {
+    color(c);
+    CTX.fillRect(x * SCALE_FACTOR, y * SCALE_FACTOR, SCALE_FACTOR, SCALE_FACTOR);
 }
 
-const bankSize = 0xff;
-const nBanks = 8;
-const cpu = new CPU(MM);
+// for (let y = 0; y < TILE_HEIGHT * PIXELS_PER_TILE; y++) {
+//     for (let x = 0; x < TILE_WIDTH * PIXELS_PER_TILE; x++) {
+//         const index = x / y ** 0.5 & 0xf;
+//         drawPixel(x, y, colors[index]);
+//     }
+// }
 
-const memoryBankDevice = CreateBankedMemory(nBanks, bankSize, cpu);
-MM.map(memoryBankDevice, 0, bankSize);
+const tile = [
+    0x00, 0x11, 0x22, 0x33,
+    0x00, 0x11, 0x22, 0x33,
+    0x44, 0x55, 0x66, 0x77,
+    0x44, 0x55, 0x66, 0x77,
+    0x88, 0x99, 0xaa, 0xbb,
+    0x88, 0x99, 0xaa, 0xbb,
+    0xcc, 0xdd, 0xee, 0xff,
+    0xcc, 0xdd, 0xee, 0xff,
+];
 
-const regularMemory = CreateMemory(0xff00);
-MM.map(regularMemory, bankSize, 0xffff, true);
+const drawTile = (x, y, tileData) => {
+    for (let yOff = 0; yOff < PIXELS_PER_TILE; yOff++) {
+        for (let xOff = 0; xOff < PIXELS_PER_TILE; xOff += 2) {
+            const index = (yOff * PIXELS_PER_TILE + xOff) / 2
+            const byte = tileData[index];
 
-console.log("Writing value 1 to address 0");
-MM.setUint16(0, 1);
-console.log("Reading value at address 0:", MM.getUint16(0));
+            const c1 = colors[byte >> 4];
+            const c2 = colors[byte & 0xf];
 
-console.log("\n::: Switching memory bank (0 -> 1)");
-cpu.SetRegister("mb", 1);
-console.log("Reading value at address 0:", MM.getUint16(0));
+            drawPixel(x + xOff, y + yOff, c1);
+            drawPixel(x + xOff + 1, y + yOff, c2);
+        }
+    }
+}
 
-console.log("Writing value 42 to address 0");
-MM.setUint16(0, 42);
-console.log("\n::: Switching memory bank (1 -> 2)");
-cpu.SetRegister("mb", 2);
-console.log("Reading value at address 0:", MM.getUint16(0));
+// drawTile(0, 0, tile);
 
-console.log("\n::: Switching memory bank (2 -> 1)");
-cpu.SetRegister("mb", 1);
-console.log("Reading value at address 0:", MM.getUint16(0));
+const blackTile = Array.from({length: 32}, () => 0xff);
+const yellowTile = Array.from({length: 32}, () => 0x33);
 
-console.log("\n::: Switching memory bank (1 -> 0)");
-cpu.SetRegister("mb", 0);
-console.log("Reading value at address 0:", MM.getUint16(0));
+const position = {x: 0, y: 0};
+
+const draw = () => {
+    color([255, 255, 255, 1]);
+    CTX.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    for (let y = 0; y < TILE_HEIGHT; y++) {
+        for (let x = 0; x < TILE_WIDTH; x++) {
+            if ((x + y) % 2 === 0) {
+                drawTile(x * PIXELS_PER_TILE, y * PIXELS_PER_TILE, blackTile);
+            } else {
+                drawTile(x * PIXELS_PER_TILE, y * PIXELS_PER_TILE, yellowTile);
+            }
+        }
+    }
+
+    position.x = (position.x + 1) % (TILE_WIDTH * PIXELS_PER_TILE);
+    position.y = (position.y + 1) % (TILE_HEIGHT * PIXELS_PER_TILE);
+    drawTile(position.x, position.y, tile);
+
+    requestAnimationFrame(draw);
+}
+
+draw();
